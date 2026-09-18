@@ -4,10 +4,10 @@
 > 学号 24121846 · 姓名 余彬彬
 > 技术栈：Vue 3 + ECharts 5 + 地图下钻 / Flask + SQLite / SSE 实时推送 / 智能问答
 
-**仓库地址：<https://github.com/RakkainY/tianshu-meteo-viz>**
+**仓库地址：<https://github.com/rakkainovo/tianshu-meteo-viz>**
 
 ```bash
-git clone https://github.com/RakkainY/tianshu-meteo-viz.git
+git clone https://github.com/rakkainovo/tianshu-meteo-viz.git
 cd tianshu-meteo-viz
 ```
 
