@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{overflow:hidden}
+  body{
+    width:1520px;height:548px;background:#ffffff;
+    font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;
+    color:#1f2937;padding:26px 30px 22px;
+  }
+  .title{font-size:25px;font-weight:700;text-align:center;letter-spacing:1px}
+  .sub{font-size:13px;color:#64748b;text-align:center;margin-top:6px;margin-bottom:24px}
+
+  .map{display:flex;align-items:center;justify-content:center;height:490px}
+  .col{display:flex;flex-direction:column;justify-content:center;gap:16px;width:452px}
+  .col.right{width:452px}
+
+  /* root */
+  .root{
+    width:300px;flex:0 0 auto;margin:0 26px;
+    border-radius:18px;padding:26px 20px;text-align:center;
+    background:linear-gradient(150deg,#1e3a8a 0%,#1e40af 55%,#0e7490 100%);
+    color:#fff;box-shadow:0 10px 26px rgba(30,58,138,.28);
+  }
+  .root .zh{font-size:27px;font-weight:800;letter-spacing:3px;line-height:1.25}
+  .root .en{font-size:11px;letter-spacing:1.6px;opacity:.82;margin-top:8px}
+  .root .tag{display:inline-block;margin-top:14px;font-size:11.5px;padding:3px 11px;
+    border:1px solid rgba(255,255,255,.5);border-radius:20px}
+
+  /* branch card */
+  .card{
+    background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;
+    padding:12px 15px 13px;position:relative;
+  }
+  .card::after{
+    content:"";position:absolute;top:50%;height:2px;background:#cbd5e1;
+  }
+  .col.left .card::after{right:-26px;width:26px}
+  .col.right .card::after{left:-26px;width:26px}
+  .card::before{
+    content:"";position:absolute;top:calc(50% - 4px);width:8px;height:8px;
+    border-radius:50%;
+  }
+  .col.left .card::before{right:-5px}
+  .col.right .card::before{left:-5px}
+
+  .card h3{font-size:16px;font-weight:700;line-height:1.2;display:flex;align-items:center;gap:8px}
+  .card h3 .idx{
+    width:22px;height:22px;border-radius:6px;color:#fff;font-size:12.5px;
+    display:inline-flex;align-items:center;justify-content:center;font-weight:700;flex:0 0 auto;
+  }
+  .card ul{margin-top:9px;display:flex;flex-wrap:wrap;gap:5px 7px}
+  .card li{
+    list-style:none;font-size:12.5px;line-height:1.35;color:#334155;
+    background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:3px 8px;
+  }
+  .c1 .idx{background:#1e40af}.c1 h3{color:#1e40af}.c1::before{background:#1e40af}
+  .c2 .idx{background:#0f766e}.c2 h3{color:#0f766e}.c2::before{background:#0f766e}
+  .c3 .idx{background:#c2410c}.c3 h3{color:#c2410c}.c3::before{background:#c2410c}
+  .c4 .idx{background:#6d28d9}.c4 h3{color:#6d28d9}.c4::before{background:#6d28d9}
+  .c5 .idx{background:#be123c}.c5 h3{color:#be123c}.c5::before{background:#be123c}
+  .c6 .idx{background:#0369a1}.c6 h3{color:#0369a1}.c6::before{background:#0369a1}
+</style>
+</head>
+<body>
+  <div class="map">
+    <div class="col left">
+      <div class="card c1">
+        <h3><span class="idx">1</span>数据采集层</h3>
+        <ul>
+          <li>中央气象台站点接口</li><li>预警信号接口</li>
+          <li>7 日预报接口</li><li>台风路径接口</li>
+          <li>阿里 DataV 行政区划</li><li>curl_cffi 指纹伪装</li>
+        </ul>
+      </div>
+      <div class="card c2">
+        <h3><span class="idx">2</span>数据治理层</h3>
+        <ul>
+          <li>9999 缺测值清洗</li><li>行政区名规范化</li>
+          <li>坐标三级回退匹配</li><li>灾种 / 等级归一</li>
+          <li>去重与增量合并</li>
+        </ul>
+      </div>
+      <div class="card c3">
+        <h3><span class="idx">3</span>数据存储层</h3>
+        <ul>
+          <li>SQLite 8 张数据表</li><li>3237 条行政区划</li>
+          <li>2528 个气象站点</li><li>365 个离线 GeoJSON</li>
+          <li>obs_stat 分钟聚合表</li><li>live_event 事件流表</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="root">
+      <div class="zh">天枢</div>
+      <div class="en">TIANSHU · METEOROLOGICAL VISUALIZATION</div>
+      <div class="tag">全国气象监测与灾害预警时空可视化</div>
+    </div>
+
+    <div class="col right">
+      <div class="card c4">
+        <h3><span class="idx">4</span>可视化分析层</h3>
+        <ul>
+          <li>态势总览大屏</li><li>预警地图四级下钻</li>
+          <li>站点实况监测</li><li>台风路径回放</li>
+          <li>时空回放</li><li>ECharts 图元体系</li>
+        </ul>
+      </div>
+      <div class="card c5">
+        <h3><span class="idx">5</span>实时引擎层</h3>
+        <ul>
+          <li>预警轮询 60 s</li><li>实况轮转 45 s</li>
+          <li>台风覆盖 30 min</li><li>失败退避重试</li>
+          <li>SSE 事件推送</li><li>增量刷新</li>
+        </ul>
+      </div>
+      <div class="card c6">
+        <h3><span class="idx">6</span>人机交互层</h3>
+        <ul>
+          <li>顶部导航栏</li><li>深色科技风视觉</li>
+          <li>地图 / 图表联动</li><li>自然语言问答</li>
+          <li>规则 + 大模型双通道</li><li>结论可溯源到 SQL</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

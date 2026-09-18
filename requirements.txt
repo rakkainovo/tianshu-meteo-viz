@@ -1,0 +1,11 @@
+# 天枢平台运行依赖
+#
+# Web 应用（可视化大屏 + 后端服务）
+#   安装：pip install -r requirements.txt
+flask>=3.0
+
+# 数据采集（可选，仅在需要重新采数时安装）
+#   HTTP 客户端用 curl_cffi 是为了绕开 nmc.cn 的 TLS 指纹校验，
+#   普通 requests 会被识别为非浏览器流量而拒绝（详见 docs/01-数据采集指南.md）
+curl_cffi>=0.7
+requests>=2.31

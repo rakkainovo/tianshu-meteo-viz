@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>天枢 · 全国气象监测与灾害预警时空可视化平台</title>
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div id="app" v-cloak>
+
+  <!-- ================= 顶栏 ================= -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
+          <circle cx="16" cy="16" r="13" fill="none" stroke="#3fc6ff" stroke-width="1.4" opacity=".55"/>
+          <circle cx="16" cy="16" r="7" fill="none" stroke="#7cf6d8" stroke-width="1.4" opacity=".8"/>
+          <path d="M16 3v26M3 16h26" stroke="#3fc6ff" stroke-width=".8" opacity=".38"/>
+          <circle cx="16" cy="16" r="2.6" fill="#7cf6d8"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1>天枢</h1>
+        <p>全国气象监测与灾害预警时空可视化平台</p>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <a v-for="v in views" :key="v.key" :href="'#/' + v.key"
+         :class="{ active: view === v.key }" @click="go(v.key)">
+        <span class="nav-ico" v-html="v.icon"></span>{{ v.name }}
+      </a>
+    </nav>
+
+    <div class="topbar-meta">
+      <div class="live-badge" :class="liveState" :title="'数据版本 v' + liveVersion">
+        <span class="dot" :class="liveConnected && liveOn ? 'live' : (liveOn ? 'warn' : '')"></span>
+        <span class="lb-text">{{ liveOn ? (liveConnected ? '实时' : '连接中') : '已暂停' }}</span>
+        <span class="lb-sub">{{ liveText }}</span>
+      </div>
+      <button class="btn ghost tiny" @click="manualRefresh" title="按最新数据刷新当前页面">刷新</button>
+      <button class="btn ghost tiny" @click="toggleLive" :title="liveOn ? '暂停自动刷新' : '恢复自动刷新'">
+        {{ liveOn ? '暂停' : '自动' }}
+      </button>
+      <div class="meta-item src" :title="sourceTip">数据源：中国气象局</div>
+    </div>
+  </header>
+
+  <!-- ================= 主体 ================= -->
+  <main class="stage">
+    <div v-if="!booted" class="boot">
+      <div class="boot-ring"></div>
+      <p>正在装载数据集 …</p>
+    </div>
+    <div v-else-if="bootError" class="boot err">
+      <p>数据加载失败：{{ bootError }}</p>
+      <p class="hint">请确认后端服务已启动（python server/app.py）</p>
+    </div>
+    <component v-else ref="stage" :is="'v-' + view" :meta="meta" :ctx="ctx"
+               @pick="onPick" @goto="go"></component>
+  </main>
+
+  <!-- ================= 全局提示 ================= -->
+  <transition name="fade">
+    <div v-if="toast" class="toast">{{ toast }}</div>
+  </transition>
+</div>
+
+<script src="/vendor/vue.global.prod.js"></script>
+<script src="/vendor/echarts.min.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/theme.js"></script>
+<script src="/js/charts.js"></script>
+<script src="/js/views/overview.js"></script>
+<script src="/js/views/alarm.js"></script>
+<script src="/js/views/station.js"></script>
+<script src="/js/views/typhoon.js"></script>
+<script src="/js/views/playback.js"></script>
+<script src="/js/views/live.js"></script>
+<script src="/js/views/qa.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

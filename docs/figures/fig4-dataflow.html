@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{overflow:hidden}
+  body{
+    width:1520px;height:532px;background:#ffffff;
+    font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;
+    color:#1f2937;padding:26px 34px 18px;
+  }
+  .title{font-size:25px;font-weight:700;text-align:center;letter-spacing:1px}
+  .sub{font-size:13px;color:#64748b;text-align:center;margin-top:6px;margin-bottom:22px}
+
+  .dfd{display:flex;align-items:center;justify-content:center;height:420px}
+
+  .side{width:352px;display:flex;flex-direction:column;gap:16px}
+  .node{
+    border-radius:12px;padding:12px 14px;border:1px solid #e2e8f0;background:#fff;
+    box-shadow:0 1px 2px rgba(15,37,68,.05);
+  }
+  .node .hd{display:flex;align-items:center;gap:8px;font-size:14.5px;font-weight:700;color:#0f2544}
+  .node .hd i{
+    width:10px;height:10px;border-radius:3px;flex:0 0 auto;
+  }
+  .node ul{margin-top:8px;display:flex;flex-wrap:wrap;gap:5px}
+  .node li{
+    list-style:none;font-size:11.5px;color:#475569;background:#f1f5f9;
+    border-radius:5px;padding:3px 8px;
+  }
+  .p1 .hd i{background:#1e40af}.p2 .hd i{background:#0369a1}
+  .c1 .hd i{background:#c2410c}.c2 .hd i{background:#be123c}
+  .side.right .node{border-left:3px solid #c2410c}
+  .side.right .node.c2{border-left-color:#be123c}
+
+  .store{
+    width:398px;flex:0 0 auto;margin:0 6px;border-radius:14px;padding:16px 16px 14px;
+    background:linear-gradient(160deg,#0f2544 0%,#143a63 100%);color:#fff;
+    box-shadow:0 10px 24px rgba(15,37,68,.22);
+  }
+  .store h3{font-size:17px;font-weight:800;letter-spacing:1px;text-align:center}
+  .store .en{font-size:10px;text-align:center;opacity:.7;letter-spacing:1.2px;margin-top:4px;margin-bottom:12px}
+  .store .grid{display:flex;flex-wrap:wrap;gap:6px}
+  .store .t{
+    font-size:11.5px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);
+    border-radius:6px;padding:4px 8px;color:#e2e8f0;
+  }
+  .store .meta{margin-top:11px;font-size:11px;line-height:1.6;color:#a5b8cf;
+    border-top:1px dashed rgba(255,255,255,.2);padding-top:9px}
+
+  .arrow{width:104px;flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:5px}
+  .arrow .cap{font-size:10.5px;color:#64748b;text-align:center;line-height:1.35}
+  .arrow .ln{width:100%;height:0;border-top:2px solid #cbd5e1;position:relative}
+  .arrow .ln::after{
+    content:"";position:absolute;right:-1px;top:-5px;
+    border-left:8px solid #cbd5e1;border-top:4px solid transparent;border-bottom:4px solid transparent;
+  }
+  .arrow.live .ln{border-top-style:dashed;border-top-color:#f59e0b}
+  .arrow.live .ln::after{border-left-color:#f59e0b}
+  .arrow.live .cap{color:#b45309}
+  .arrow .stack{display:flex;flex-direction:column;gap:9px;align-items:center;width:100%}
+  .arrow .ln.live-dash{
+    border-top:2px dashed #f59e0b;
+  }
+  .arrow .ln.live-dash::after{border-left-color:#f59e0b}
+
+  .legend{
+    margin-top:8px;display:flex;gap:26px;justify-content:center;align-items:center;
+    font-size:11.5px;color:#475569;
+  }
+  .legend span{display:flex;align-items:center;gap:7px}
+  .legend .k{display:inline-block;width:30px;height:0;border-top:2px solid #cbd5e1}
+  .legend .k.dash{border-top-style:dashed;border-top-color:#f59e0b}
+</style>
+</head>
+<body>
+  <div class="dfd">
+    <div class="side left">
+      <div class="node p1">
+        <div class="hd"><i></i>批次采集器（初始化）</div>
+        <ul><li>站点清单</li><li>站点实况</li><li>7 日预报</li><li>预警全量</li><li>台风路径</li><li>行政区划</li></ul>
+      </div>
+      <div class="node p2">
+        <div class="hd"><i></i>实时引擎（运行期）</div>
+        <ul><li>预警轮询 60 s</li><li>实况轮转 45 s</li><li>台风覆盖 30 min</li><li>失败退避</li></ul>
+      </div>
+    </div>
+
+    <div class="arrow">
+      <div class="cap">原始 JSON<br>规范化记录</div>
+      <div class="ln"></div>
+    </div>
+
+    <div class="store">
+      <h3>SQLite 数据存储</h3>
+      <div class="en">METEO.DB · SINGLE-FILE DATABASE</div>
+      <div class="grid">
+        <span class="t">region 区划</span><span class="t">station 站点</span>
+        <span class="t">observation 实况</span><span class="t">forecast 预报</span>
+        <span class="t">typhoon 台风</span><span class="t">alarm 预警</span>
+        <span class="t">obs_stat 聚合</span><span class="t">live_event 事件流</span>
+      </div>
+      <div class="meta">
+        主键去重 · 增量合并 · <b>ingested_at</b> 记录入库时刻 · <b>updated_at</b> 记录最新观测时刻<br>
+        派生指标（台风强度等级、预警等级映射）在读取时统一计算，保证口径一致
+      </div>
+    </div>
+
+    <div class="arrow">
+      <div class="stack">
+        <div class="cap">查询结果<br>（REST / JSON）</div>
+        <div class="ln"></div>
+        <div class="cap">变更事件<br>（SSE 推送）</div>
+        <div class="ln live-dash"></div>
+      </div>
+    </div>
+
+    <div class="side right">
+      <div class="node c1">
+        <div class="hd"><i></i>接口服务</div>
+        <ul><li>/api/overview</li><li>/api/alarms</li><li>/api/stations</li><li>/api/live/status</li></ul>
+      </div>
+      <div class="node c2">
+        <div class="hd"><i></i>前端渲染与增量刷新</div>
+        <ul><li>按任务类型失效缓存</li><li>各页面 onLive() 钩子</li><li>保留用户交互状态</li></ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="dfd" style="display:none"></div>
+
+  <div class="legend">
+    <span><i class="k"></i>请求 / 响应（拉取式）</span>
+    <span><i class="k dash"></i>变更事件推送（SSE，服务端主动通知）</span>
+    <span>状态保留在服务端内存，重启后由数据库重建</span>
+  </div>
+</body>
+</html>

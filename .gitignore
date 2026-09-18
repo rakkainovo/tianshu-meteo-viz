@@ -1,0 +1,32 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.Python
+
+# ---------- SQLite 运行时副产物 ----------
+# 数据库本体 data/meteo.db 需要提交，仅忽略临时文件
+data/*.db-shm
+data/*.db-wal
+*.db-journal
+
+# ---------- 编辑器 / 操作系统 ----------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- 临时文件与日志 ----------
+*.log
+*.tmp
+~$*
+
+# ---------- 课程提交物（论文由学习者单独上交学习通）----------
+# 如需把论文一并纳入仓库，注释掉下面这行
+# docs/*.docx

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{overflow:hidden}
+  body{
+    width:1520px;height:740px;background:#ffffff;
+    font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;
+    color:#1f2937;padding:26px 34px 20px;
+  }
+  .title{font-size:25px;font-weight:700;text-align:center;letter-spacing:1px}
+  .sub{font-size:13px;color:#64748b;text-align:center;margin-top:6px;margin-bottom:22px}
+
+  .layer{display:flex;align-items:stretch;margin-bottom:12px;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0}
+  .lbl{
+    width:112px;flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    color:#fff;font-size:14px;font-weight:700;letter-spacing:1px;line-height:1.5;text-align:center;padding:6px 4px;
+  }
+  .lbl small{font-size:9.5px;letter-spacing:.6px;opacity:.82;font-weight:400;margin-top:5px}
+  .mods{flex:1;display:flex;flex-wrap:wrap;gap:9px;padding:13px 15px;background:#fafbfc;align-content:center}
+  .mod{
+    background:#fff;border:1px solid #e2e8f0;border-left-width:3px;border-radius:8px;
+    padding:8px 12px;font-size:12.5px;line-height:1.4;color:#25324a;flex:1;min-width:0;
+  }
+  .mod b{display:block;font-size:13px;color:#0f2544;margin-bottom:2px}
+  .mod span{font-size:11px;color:#64748b}
+
+  .L1 .lbl{background:#1e40af}.L1 .mod{border-left-color:#1e40af}
+  .L2 .lbl{background:#0e7490}.L2 .mod{border-left-color:#0e7490}
+  .L3 .lbl{background:#c2410c}.L3 .mod{border-left-color:#c2410c}
+  .L4 .lbl{background:#0f766e}.L4 .mod{border-left-color:#0f766e}
+  .L5 .lbl{background:#6d28d9}.L5 .mod{border-left-color:#6d28d9}
+
+  .sep{display:flex;align-items:center;justify-content:center;gap:10px;height:22px;color:#94a3b8;font-size:11.5px}
+  .sep i{display:block;width:60px;height:1px;background:#dbe3ec}
+</style>
+</head>
+<body>
+  <div class="layer L1">
+    <div class="lbl">表现层<small>PRESENTATION</small></div>
+    <div class="mods">
+      <div class="mod"><b>导航与路由</b><span>Hash 路由 · 七页切换</span></div>
+      <div class="mod"><b>态势总览</b><span>全国指标看板</span></div>
+      <div class="mod"><b>预警地图</b><span>四级行政区下钻</span></div>
+      <div class="mod"><b>站点实况</b><span>温度 / 降水监测</span></div>
+      <div class="mod"><b>台风回放</b><span>路径时间轴</span></div>
+      <div class="mod"><b>时空回放</b><span>时间 × 空间联动</span></div>
+      <div class="mod"><b>实时引擎</b><span>任务状态与事件流</span></div>
+      <div class="mod"><b>智能问答</b><span>自然语言查询</span></div>
+    </div>
+  </div>
+
+  <div class="sep"><i></i>HTTP / JSON　·　SSE 事件流<i></i></div>
+
+  <div class="layer L2">
+    <div class="lbl">通信层<small>INTERFACE</small></div>
+    <div class="mods">
+      <div class="mod"><b>REST 数据接口</b><span>/api/overview · /api/alarms · /api/stations · /api/typhoons · /api/playback</span></div>
+      <div class="mod"><b>实时推送通道</b><span>/api/live/stream（Server-Sent Events 单向长连接）</span></div>
+      <div class="mod"><b>实时查询接口</b><span>/api/live/status · /events · /obs-series · /run</span></div>
+    </div>
+  </div>
+
+  <div class="sep"><i></i>应用内调用<i></i></div>
+
+  <div class="layer L3">
+    <div class="lbl">服务层<small>SERVICE</small></div>
+    <div class="mods">
+      <div class="mod"><b>Flask 应用</b><span>路由注册 · 统一响应 · 缓存头</span></div>
+      <div class="mod"><b>实时引擎</b><span>3 个后台任务线程 · 失败退避 · 事件广播</span></div>
+      <div class="mod"><b>问答引擎</b><span>意图解析 → SQL 生成 → 结论溯源</span></div>
+      <div class="mod"><b>数据集市</b><span>派生指标 · 聚合视图 · 等级映射</span></div>
+    </div>
+  </div>
+
+  <div class="sep"><i></i>SQL / 文件读取<i></i></div>
+
+  <div class="layer L4">
+    <div class="lbl">存储层<small>STORAGE</small></div>
+    <div class="mods">
+      <div class="mod"><b>SQLite 数据库</b><span>8 张表：区划 / 站点 / 实况 / 预报 / 台风 / 预警 / 聚合 / 事件流</span></div>
+      <div class="mod"><b>离线地图仓库</b><span>365 个 GeoJSON，全国 → 省 → 市 → 区县</span></div>
+      <div class="mod"><b>原始数据快照</b><span>采集到的 JSON 原始落盘，便于复现</span></div>
+    </div>
+  </div>
+
+  <div class="sep"><i></i>采集写入<i></i></div>
+
+  <div class="layer L5">
+    <div class="lbl">数据源<small>DATA SOURCE</small></div>
+    <div class="mods">
+      <div class="mod"><b>中央气象台</b><span>站点清单 · 站点实况 · 7 日预报</span></div>
+      <div class="mod"><b>预警信号服务</b><span>全国实时预警发布记录</span></div>
+      <div class="mod"><b>台风路径服务</b><span>历史台风轨迹与强度</span></div>
+      <div class="mod"><b>阿里 DataV</b><span>行政区划边界与中心点</span></div>
+    </div>
+  </div>
+</body>
+</html>

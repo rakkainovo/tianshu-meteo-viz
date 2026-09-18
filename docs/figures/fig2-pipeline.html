@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{overflow:hidden}
+  body{
+    width:1520px;height:490px;background:#ffffff;
+    font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;
+    color:#1f2937;padding:26px 34px 20px;
+  }
+  .title{font-size:25px;font-weight:700;text-align:center;letter-spacing:1px}
+  .sub{font-size:13px;color:#64748b;text-align:center;margin-top:6px;margin-bottom:26px}
+
+  .flow{display:flex;align-items:stretch;justify-content:center}
+  .step{
+    width:178px;flex:0 0 auto;border-radius:12px;padding:13px 12px 13px;
+    background:#f8fafc;border:1px solid #e2e8f0;position:relative;
+  }
+  .step .num{
+    width:26px;height:26px;border-radius:8px;background:#1e40af;color:#fff;
+    font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;
+    margin-bottom:8px;
+  }
+  .step h3{font-size:14.5px;font-weight:700;line-height:1.25;color:#0f2544}
+  .step p{font-size:11.5px;line-height:1.55;color:#5b6b7f;margin-top:7px}
+  .arrow{
+    width:22px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+    color:#94a3b8;font-size:17px;
+  }
+  .s1 .num{background:#1e40af}
+  .s2 .num{background:#1d4ed8}
+  .s3 .num{background:#0e7490}
+  .s4 .num{background:#0f766e}
+  .s5 .num{background:#c2410c}
+  .s6 .num{background:#be123c}
+  .s7 .num{background:#6d28d9}
+
+  .band{
+    margin-top:26px;border:1px dashed #c7d2fe;background:#f5f8ff;border-radius:12px;
+    padding:13px 20px 14px;
+  }
+  .band .bt{font-size:13.5px;font-weight:700;color:#1e40af;margin-bottom:9px}
+  .band .row{display:flex;gap:10px}
+  .band .cell{
+    flex:1;background:#fff;border:1px solid #e2e8f0;border-radius:8px;
+    padding:8px 10px;font-size:11.5px;line-height:1.5;color:#334155;
+  }
+  .band .cell b{display:block;color:#0f2544;font-size:12.5px;margin-bottom:3px}
+</style>
+</head>
+<body>
+  <div class="flow">
+    <div class="step s1"><div class="num">1</div><h3>需求分析与<br>主题确定</h3><p>明确业务问题<br>界定数据范围</p></div>
+    <div class="arrow">&#9654;</div>
+    <div class="step s2"><div class="num">2</div><h3>数据采集</h3><p>多源接口抓取<br>原始数据落盘</p></div>
+    <div class="arrow">&#9654;</div>
+    <div class="step s3"><div class="num">3</div><h3>清洗与<br>预处理</h3><p>缺测值处理<br>名称与坐标规范化</p></div>
+    <div class="arrow">&#9654;</div>
+    <div class="step s4"><div class="num">4</div><h3>建模与<br>数据存储</h3><p>关系化建表<br>指标聚合派生</p></div>
+    <div class="arrow">&#9654;</div>
+    <div class="step s5"><div class="num">5</div><h3>视觉编码<br>设计</h3><p>图形 / 颜色 / 位置<br>通道映射</p></div>
+    <div class="arrow">&#9654;</div>
+    <div class="step s6"><div class="num">6</div><h3>交互与<br>呈现</h3><p>导航、下钻、联动<br>实时推送</p></div>
+    <div class="arrow">&#9654;</div>
+    <div class="step s7"><div class="num">7</div><h3>评估与<br>迭代</h3><p>可用性验证<br>方案迭代优化</p></div>
+  </div>
+
+  <div class="band">
+    <div class="bt">本文的实现对应</div>
+    <div class="row">
+      <div class="cell"><b>① 需求</b>气象灾害预警发布分散、时空关系难感知</div>
+      <div class="cell"><b>② 采集</b>中央气象台 4 类公开接口，3029 次请求 0 失败</div>
+      <div class="cell"><b>③ 清洗</b>9999 缺测剔除，预警标题切分出省 / 市 / 县</div>
+      <div class="cell"><b>④ 存储</b>SQLite 8 表 + 365 个离线 GeoJSON</div>
+      <div class="cell"><b>⑤ 编码</b>色阶表示预警等级，气泡大小表示站点量级</div>
+      <div class="cell"><b>⑥ 交互</b>七页导航 + 四级地图下钻 + SSE 实时刷新</div>
+      <div class="cell"><b>⑦ 评估</b>问答回归 21/21，覆盖率 99.9%</div>
+    </div>
+  </div>
+</body>
+</html>
