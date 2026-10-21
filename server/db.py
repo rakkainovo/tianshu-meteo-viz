@@ -18,6 +18,7 @@ db.py —— SQLite 数据库构建
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import re
 import sqlite3
@@ -28,6 +29,19 @@ BASE = Path(__file__).resolve().parents[1]
 GEO = BASE / "data" / "geo"
 PROC = BASE / "data" / "processed"
 DB_PATH = BASE / "data" / "meteo.db"
+
+
+def connect(db_path: Path | str = DB_PATH, timeout: float = 30) -> sqlite3.Connection:
+    """Use memory for SQLite's temporary tables, including history triggers.
+
+    temp_store is connection-local: setting it only during migration leaves
+    live batch writes dependent on the Windows process's temporary directory.
+    The database and transaction journals still persist on disk.
+    """
+    conn = sqlite3.connect(db_path, timeout=timeout)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA temp_store = MEMORY")
+    return conn
 
 # 预警信号四级色标（沿用中国气象局官方发布色）
 LEVEL_COLOR = {"蓝色": "#3d7eff", "黄色": "#ffd233", "橙色": "#ff8a00", "红色": "#ff3b47", "未知": "#7a8aa0"}
@@ -79,13 +93,32 @@ CREATE TABLE IF NOT EXISTS alarm (
     province TEXT, city TEXT, county TEXT,
     adm_code TEXT, lng REAL, lat REAL, geo_level TEXT,
     icon TEXT, url TEXT,
-    ingested_at TEXT                 -- 入库时刻（实时引擎写入，用于"新增"高亮）
+    ingested_at TEXT,                -- 入库时刻（实时引擎写入，用于"新增"高亮）
+    source TEXT DEFAULT 'nmc',       -- 数据源：nmc=气象局 nmc.cn；weathercn=中国天气网补充源
+    -- 【生效口径】最后一次被观测到出现在"当前生效预警清单"里的时刻。
+    -- nmc /rest/findAlarm 本身返回的就是当前生效清单（实测窗口恒 ≤ ~24h），
+    -- 所以每轮采集把本轮出现的 id 全部刷这个时间戳，"最近一轮采集"那一批
+    -- 就是权威的生效集合 —— 不必拍一个 now-24h 的硬窗口。
+    -- 与 ingested_at 的区别：ingested_at 只记首次看到（不会再变），本列每轮都刷。
+    last_seen_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_alarm_ts       ON alarm(ts);
 CREATE INDEX IF NOT EXISTS idx_alarm_province ON alarm(province);
 CREATE INDEX IF NOT EXISTS idx_alarm_city     ON alarm(city);
 CREATE INDEX IF NOT EXISTS idx_alarm_type     ON alarm(type);
 CREATE INDEX IF NOT EXISTS idx_alarm_level    ON alarm(level_rank);
+
+-- 预警采集审计：每轮采集记一行，用于自证"生效口径取自哪一轮、那一轮收了多少条"。
+-- ok=0 表示本轮被守卫拦下（空列表 / 条数骤降），此时**不刷新** last_seen_at，
+-- 地图继续沿用上一轮快照，避免上游抖动把 300 多条预警误判成"已失效"。
+CREATE TABLE IF NOT EXISTS alarm_scan (
+    ts TEXT PRIMARY KEY,             -- 本轮采集时刻（与 last_seen_at 同格式）
+    scanned INT,                     -- 上游返回条数
+    fresh INT,                       -- 其中新增条数
+    seen INT,                        -- 其中"已在库、本轮刷新生效标记"的条数
+    ok INT DEFAULT 1,
+    note TEXT
+);
 
 -- 气象站点
 CREATE TABLE IF NOT EXISTS station (
@@ -126,14 +159,52 @@ CREATE TABLE IF NOT EXISTS live_event (
 );
 CREATE INDEX IF NOT EXISTS idx_live_event_ts ON live_event(ts);
 
--- 七日预报
+-- 逐日预报（窗口随采集时间滚动：每天抓取时覆盖写今天及未来若干天）
+-- fetched_at 记录该行最后一次抓取时刻，前端据此标注"预报更新于 xx"
 CREATE TABLE IF NOT EXISTS forecast (
     code TEXT, date TEXT,
     day_info TEXT, night_info TEXT,
     day_temp REAL, night_temp REAL,
     day_wind TEXT, day_power TEXT, precip REAL,
+    fetched_at TEXT,
     PRIMARY KEY (code, date)
 );
+CREATE INDEX IF NOT EXISTS idx_forecast_code ON forecast(code, date);
+
+CREATE TABLE IF NOT EXISTS observation_history (
+    code TEXT NOT NULL, ts TEXT NOT NULL,
+    temp REAL, feelst REAL, humidity REAL, rain REAL, pressure REAL, info TEXT,
+    collected_at TEXT,
+    PRIMARY KEY (code, ts)
+);
+CREATE INDEX IF NOT EXISTS idx_obs_history_ts ON observation_history(ts);
+CREATE TRIGGER IF NOT EXISTS observation_history_retention
+AFTER INSERT ON observation_history
+BEGIN
+    DELETE FROM observation_history WHERE ts < datetime('now','+8 hours','-30 days');
+END;
+
+CREATE TRIGGER IF NOT EXISTS observation_history_insert
+AFTER INSERT ON observation WHEN datetime(NEW.publish_time) IS NOT NULL
+BEGIN
+    INSERT INTO observation_history(code,ts,temp,feelst,humidity,rain,pressure,info,collected_at)
+    VALUES(NEW.code,replace(NEW.publish_time,'T',' '),NEW.temp,NEW.feelst,NEW.humidity,
+           NEW.rain,NEW.pressure,NEW.info,NEW.collected_at)
+    ON CONFLICT(code,ts) DO UPDATE SET temp=excluded.temp,feelst=excluded.feelst,
+        humidity=excluded.humidity,rain=excluded.rain,pressure=excluded.pressure,
+        info=excluded.info,collected_at=excluded.collected_at;
+END;
+CREATE TRIGGER IF NOT EXISTS observation_history_update
+AFTER UPDATE OF publish_time,temp,feelst,humidity,rain,pressure,info ON observation
+WHEN datetime(NEW.publish_time) IS NOT NULL
+BEGIN
+    INSERT INTO observation_history(code,ts,temp,feelst,humidity,rain,pressure,info,collected_at)
+    VALUES(NEW.code,replace(NEW.publish_time,'T',' '),NEW.temp,NEW.feelst,NEW.humidity,
+           NEW.rain,NEW.pressure,NEW.info,NEW.collected_at)
+    ON CONFLICT(code,ts) DO UPDATE SET temp=excluded.temp,feelst=excluded.feelst,
+        humidity=excluded.humidity,rain=excluded.rain,pressure=excluded.pressure,
+        info=excluded.info,collected_at=excluded.collected_at;
+END;
 
 -- 台风（路径已做长度/强度派生计算，避免前端二次遍历）
 CREATE TABLE IF NOT EXISTS typhoon (
@@ -162,6 +233,7 @@ CREATE TABLE IF NOT EXISTS dataset_meta (
 # 依赖实时引擎新增列的索引 —— 必须在建列之后才能真正创建（老库需先 ALTER）
 LATE_INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_alarm_ingested ON alarm(ingested_at);
+CREATE INDEX IF NOT EXISTS idx_alarm_seen     ON alarm(last_seen_at);
 CREATE INDEX IF NOT EXISTS idx_obs_updated    ON observation(updated_at);
 """
 
@@ -320,7 +392,7 @@ def build(db_path: Path = DB_PATH, region_rows: list[tuple] | None = None) -> No
         if p.exists():
             p.unlink()
 
-    conn = sqlite3.connect(db_path)
+    conn = connect(db_path)
     conn.executescript(SCHEMA)
 
     # --- 区划 ---
@@ -369,6 +441,9 @@ def build(db_path: Path = DB_PATH, region_rows: list[tuple] | None = None) -> No
         # 统一成 "YYYY-MM-DD HH:MM:SS"（快照里是 ISO 的 T 分隔），
         # 否则与实时引擎写入的时间串比较时会出错
         collected = (pack.get("collected_at") or "").replace("T", " ")
+        _t = datetime.date.today()
+        fc_lo = (_t - datetime.timedelta(days=1)).isoformat()
+        fc_hi = (_t + datetime.timedelta(days=15)).isoformat()
         obs, fcs = [], []
         for s in pack["stations"]:
             obs.append((s["code"], collected, s.get("publish_time"),
@@ -382,15 +457,22 @@ def build(db_path: Path = DB_PATH, region_rows: list[tuple] | None = None) -> No
                         return float(v)
                     except (TypeError, ValueError):
                         return None
-                fcs.append((s["code"], d.get("date"), d.get("day_info"), d.get("night_info"),
+                fdate = str(d.get("date") or "")[:10]
+                if not (fc_lo <= fdate <= fc_hi):      # 丢弃快照里已过去/异常日期的预报
+                    continue
+                fcs.append((s["code"], fdate, d.get("day_info"), d.get("night_info"),
                             num(d.get("day_temp")), num(d.get("night_temp")),
-                            d.get("day_wind"), d.get("day_power"), num(d.get("precip"))))
+                            d.get("day_wind"), d.get("day_power"), num(d.get("precip")),
+                            collected))
         conn.executemany(
             "INSERT OR REPLACE INTO observation (code, collected_at, publish_time, temp, feelst,"
             " humidity, rain, pressure, info, rcomfort, icomfort, updated_at, prev_temp,"
             " prev_humidity, prev_rain, prev_pressure, prev_ts, updates, next_try_at, fail_count)"
             " VALUES (" + ",".join("?" * 20) + ")", obs)
-        conn.executemany("INSERT OR REPLACE INTO forecast VALUES (?,?,?,?,?,?,?,?,?)", fcs)
+        conn.executemany(
+            "INSERT OR REPLACE INTO forecast (code, date, day_info, night_info, day_temp,"
+            " night_temp, day_wind, day_power, precip, fetched_at)"
+            " VALUES (" + ",".join("?" * 10) + ")", fcs)
         log(f"  observation  : {len(obs)} 条 / forecast {len(fcs)} 条")
 
     # --- 台风 ---
@@ -409,7 +491,9 @@ def build(db_path: Path = DB_PATH, region_rows: list[tuple] | None = None) -> No
     ap = PROC / "alarms.json"
     if ap.exists():
         pack = json.loads(ap.read_text(encoding="utf-8"))
-        built = __import__("datetime").datetime.now().isoformat(timespec="seconds")
+        # 时间串统一用空格分隔（与 ts 一致），否则和 last_seen_at 做字符串比较会失真
+        built = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        observed = (pack.get("collected_at") or "").replace("T", " ") or built
         rows = []
         for r in pack["records"]:
             ts = (r.get("time") or "").replace("/", "-")
@@ -418,17 +502,32 @@ def build(db_path: Path = DB_PATH, region_rows: list[tuple] | None = None) -> No
                          r.get("title"), r.get("type"), r.get("level"), r.get("level_rank"),
                          r.get("issuer"), r.get("province"), r.get("city"), r.get("county"),
                          r.get("adm_code"), r.get("lng"), r.get("lat"), r.get("geo_level"),
-                         r.get("icon"), r.get("url"), r.get("ingested_at") or built))
-        conn.executemany(
-            "INSERT OR REPLACE INTO alarm (id, ts, date, hour, title, type, level, level_rank,"
-            " issuer, province, city, county, adm_code, lng, lat, geo_level, icon, url, ingested_at)"
-            " VALUES (" + ",".join("?" * 19) + ")", rows)
+                         r.get("icon"), r.get("url"), r.get("ingested_at") or built,
+                         r.get("source") or "nmc",
+                         # last_seen_at：这份快照本身就是"采集那一刻的当前生效清单"
+                         r.get("observed_at") or observed))
+        cols = ("id, ts, date, hour, title, type, level, level_rank, issuer, province,"
+                " city, county, adm_code, lng, lat, geo_level, icon, url, ingested_at,"
+                " source, last_seen_at")
+        # 重建时**不回退**生效标记：老库里的 last_seen_at 可能比这份快照还新
+        # （实时引擎刚刷过），取两者较大值，否则重建一次就把生效集合打回旧时刻。
+        upsert = (
+            f"INSERT INTO alarm ({cols}) VALUES ({','.join('?' * 21)})"
+            " ON CONFLICT(id) DO UPDATE SET "
+            + ",".join(f"{c.strip()}=excluded.{c.strip()}"
+                       for c in cols.split(",") if c.strip() not in ("id", "last_seen_at"))
+            + ", last_seen_at=CASE WHEN COALESCE(excluded.last_seen_at,'')"
+              " > COALESCE(alarm.last_seen_at,'')"
+              " THEN excluded.last_seen_at ELSE alarm.last_seen_at END")
+        conn.executemany(upsert, rows)
         log(f"  alarm        : {len(rows)} 条")
 
     # --- 元信息 ---
     meta = {
         "built_at": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
-        "source_alarm": "中国气象局 www.nmc.cn /rest/findAlarm",
+        "source_alarm": "中国气象局 www.nmc.cn /rest/findAlarm"
+                        " + 中国天气网 forecast.weather.com.cn /api/v1/traffic/alarm/alarmMap"
+                        "（补充源，用于 nmc 全国流未收录的省区，如青海省）",
         "source_station": "中国气象局 www.nmc.cn /rest/weather",
         "source_typhoon": "中央气象台 typhoon.nmc.cn",
         "source_geo": "阿里 DataV 标准行政区划边界",
@@ -473,6 +572,27 @@ def typhoon_rows(pack: list[dict]) -> tuple[list[tuple], list[tuple]]:
     return ty, pts
 
 
+def record_observation_history(conn, codes: list[str] | None = None) -> None:
+    """Save actual published frames; repeated polling must not invent new observations."""
+    where, params = "", []
+    if codes is not None:
+        if not codes:
+            return
+        where = " AND code IN (%s)" % ",".join("?" * len(codes))
+        params = codes
+    conn.execute(
+        "INSERT OR IGNORE INTO observation_history "
+        "(code,ts,temp,feelst,humidity,rain,pressure,info,collected_at) "
+        "SELECT code,replace(publish_time,'T',' '),temp,feelst,humidity,rain,pressure,info,collected_at "
+        "FROM observation WHERE publish_time IS NOT NULL "
+        "AND datetime(publish_time) IS NOT NULL" + where, params)
+    conn.execute(
+        "INSERT OR IGNORE INTO observation_history "
+        "(code,ts,temp,humidity,rain,pressure) "
+        "SELECT code,replace(prev_ts,'T',' '),prev_temp,prev_humidity,prev_rain,prev_pressure "
+        "FROM observation WHERE prev_ts IS NOT NULL AND datetime(prev_ts) IS NOT NULL" + where, params)
+
+
 def migrate(db_path: Path = DB_PATH) -> list[str]:
     """把老版本数据库原地升级到支持实时增量的结构（幂等）。
 
@@ -482,17 +602,18 @@ def migrate(db_path: Path = DB_PATH) -> list[str]:
     if not Path(db_path).exists():
         return []
     changes: list[str] = []
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect(db_path)
     try:
         conn.executescript(SCHEMA)                    # 建缺失的表（不动已有表）
         for table, cols in (
-            ("alarm", [("ingested_at", "TEXT")]),
+            ("alarm", [("ingested_at", "TEXT"), ("source", "TEXT"),
+                       ("last_seen_at", "TEXT")]),
             ("observation", [("updated_at", "TEXT"), ("prev_temp", "REAL"),
                              ("prev_humidity", "REAL"), ("prev_rain", "REAL"),
                              ("prev_pressure", "REAL"), ("prev_ts", "TEXT"),
                              ("updates", "INT DEFAULT 0"), ("next_try_at", "TEXT"),
                              ("fail_count", "INT DEFAULT 0")]),
+            ("forecast", [("fetched_at", "TEXT")]),
         ):
             have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
             for name, typ in cols:
@@ -504,12 +625,53 @@ def migrate(db_path: Path = DB_PATH) -> list[str]:
         conn.execute("UPDATE observation SET updated_at = collected_at "
                      "WHERE updated_at IS NULL AND collected_at IS NOT NULL")
         conn.execute("UPDATE alarm SET ingested_at = ts WHERE ingested_at IS NULL")
+        # source 列是后加的：历史行都是 nmc 采来的，标成 nmc（别留 NULL，前端会拿到空）
+        conn.execute("UPDATE alarm SET source = 'nmc' WHERE source IS NULL")
+        # 【生效口径】last_seen_at 也是后加的。历史行**不编造**：我们确实只在采集它的
+        # 那一轮里看见过它一次，所以回填 ingested_at（缺则退到发布时刻 ts）——
+        # 如实等于"最后一次被观测到的时刻"。于是 15 天前那批旧预警自然落在生效集合
+        # 之外，而实时引擎的下一轮采集会把**仍在生效**的那批全部刷新上来。
+        conn.execute("UPDATE alarm SET last_seen_at = COALESCE(ingested_at, ts) "
+                     "WHERE last_seen_at IS NULL")
+        # 数据源说明也要跟着升级（老库里的 meta 只写着 nmc，漏掉补充源）
+        conn.execute(
+            "UPDATE dataset_meta SET value = ? WHERE key = 'source_alarm'",
+            ("中国气象局 www.nmc.cn /rest/findAlarm"
+             " + 中国天气网 forecast.weather.com.cn /api/v1/traffic/alarm/alarmMap"
+             "（补充源，用于 nmc 全国流未收录的省区，如青海省）",))
         # 时间串统一为空格分隔（早期快照用了 ISO 的 T 分隔，会让字符串比较失真）
         for col in ("collected_at", "updated_at", "prev_ts", "next_try_at"):
             conn.execute(f"UPDATE observation SET {col} = REPLACE({col}, 'T', ' ') "
                          f"WHERE {col} LIKE '%T%'")
         conn.execute("UPDATE alarm SET ingested_at = REPLACE(ingested_at, 'T', ' ') "
                      "WHERE ingested_at LIKE '%T%'")
+        conn.execute("UPDATE alarm SET last_seen_at = REPLACE(last_seen_at, 'T', ' ') "
+                     "WHERE last_seen_at LIKE '%T%'")
+        record_observation_history(conn)
+        # 清理越界预报行：预报窗口随采集时间滚动，过去日期永远不会再被更新，
+        # 历史遗留的旧日期（以及接口偶发返回的 2020 年一类异常年份）必须删掉，
+        # 否则前端"未来预报"里会混进一周前的数据。
+        # 下界取「今天」：/api/station/<code> 只返回 date >= today 的行，
+        # 昨天的行即使留着也永远不可见，只会以 fetched_at 为空的样子留在库里。
+        _today = datetime.date.today()
+        _lo = _today.isoformat()
+        _hi = (_today + datetime.timedelta(days=15)).isoformat()
+        cur = conn.execute("DELETE FROM forecast WHERE date < ? OR date > ?", (_lo, _hi))
+        if cur.rowcount:
+            changes.append(f"forecast 清理越界预报 {cur.rowcount} 条（保留 {_lo} ~ {_hi}）")
+        # 清理预报里的哨兵值 9999（"这一项没有数据"）。
+        # nmc 对"当天白天"的预报一律返回 9999，而前端会原样渲染成
+        # 「9999 / 9999°」，看着像数据坏了 —— 实测 2525 个站全是这样。
+        # 落库侧已在 live.py 的 clean_num/clean_text 里拦住，这里清历史存量。
+        n = 0
+        for col in ("day_temp", "night_temp", "precip"):
+            n += conn.execute(
+                f"UPDATE forecast SET {col} = NULL WHERE {col} = 9999").rowcount
+        for col in ("day_info", "night_info", "day_wind", "day_power"):
+            n += conn.execute(
+                f"UPDATE forecast SET {col} = NULL WHERE {col} IN ('9999','-9999')").rowcount
+        if n:
+            changes.append(f"forecast 清理哨兵值 9999 共 {n} 处")
         conn.executescript(LATE_INDEXES)
         conn.commit()
     finally:
@@ -518,8 +680,7 @@ def migrate(db_path: Path = DB_PATH) -> list[str]:
 
 
 def report(db_path: Path = DB_PATH) -> None:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect(db_path)
     q = lambda s: conn.execute(s).fetchone()[0]
     log("\n---- 数据体检 ----")
     for label, sql in [

@@ -35,6 +35,12 @@
       series() { return this.fresh.series || []; },
       provinces() { return (this.fresh.provinces || []).slice().sort((a, b) => (b.total - a.total)).slice(0, 18); },
       requests() { return (this.st && this.st.requests) || { ok: 0, fail: 0 }; },
+      /* 自适应限速状态：引擎是"跑在稳态"还是"被对方限流后主动降速" */
+      throttle() {
+        return (this.st && this.st.throttle) ||
+          { rate: '—', base_rate: '—', min_rate: '—', interval_scale: 1,
+            blocked_total: 0, block_streak: 0, limited: false };
+      },
       uptime() {
         if (!this.st || !this.st.started_at) return '—';
         const t = new Date(this.st.started_at.replace(/-/g, '/')).getTime();
@@ -55,7 +61,16 @@
       recentUpdateAt() {
         if (!this.fresh.obs_updated_at) return '—';
         return U.ago(this.fresh.obs_updated_at);
-      }
+      },
+      /* ---- 预警口径（与实况是两条独立支路，必须分开显示）----
+         2026-10-08 的教训：本页「最近一次数据入库」显示的是实况时间（一直在动），
+         而「预警最新发布」是预警的**发布时间**，两者混在一张卡里，
+         结果实况的"刚刚"把预警的"5 天前"遮住了，问题被瞒了 5 天。 */
+      alarmStale() { return !!this.fresh.alarm_stale; },
+      /* 预警最近一次成功采集距今（这是"采集链路是否活着"的判据） */
+      alarmAge() { return this.fresh.alarm_ingested ? U.ago(this.fresh.alarm_ingested) : '—'; },
+      /* 预警清单里最新一条的**发布时间**（上游发的时刻，不是我们采的时刻） */
+      alarmLatest() { return (this.fresh.alarm_latest || '—').slice(5); }
     },
     async created() { await this.load(); this.startCountdown(); },
     beforeUnmount() { clearInterval(this._cd); },
@@ -189,31 +204,45 @@
           <div class="k-foot">已运行 {{ uptime }}</div>
         </div>
         <div class="kpi" style="--accent:#3fc6ff">
-          <div class="k-label">最近一次数据入库</div>
+          <div class="k-label">最近一次实况入库</div>
           <div class="k-value" style="font-size:20px">
             {{ fresh.obs_updated_at ? ago(fresh.obs_updated_at) : '—' }}
           </div>
-          <div class="k-foot">预警最新发布 {{ (fresh.alarm_latest || '—').slice(5) }}</div>
+          <div class="k-foot">实况口径 · 预警采集 {{ alarmAge }}</div>
         </div>
-        <div class="kpi" style="--accent:#ff8a00">
+        <div class="kpi" :style="{ '--accent': alarmStale ? '#ff5a66' : '#ff8a00' }">
           <div class="k-label">实时预警信号</div>
-          <div class="k-value">{{ U.num(fresh.alarm_total) }}<small>条</small></div>
-          <div class="k-foot">近 1 小时新增 <b style="color:#ff8a00">{{ fresh.alarm_new_1h || 0 }}</b> 条</div>
+          <div class="k-value"><span v-countup="fresh.alarm_total"></span><small>条</small></div>
+          <div class="k-foot" :style="alarmStale ? 'color:#ff5a66' : ''">
+            <template v-if="alarmStale">采集已停摆 · 最新发布 {{ alarmLatest }}</template>
+            <template v-else>
+              最新发布 {{ alarmLatest }} · 近 1 小时新增
+              <b style="color:#ff8a00">{{ fresh.alarm_new_1h || 0 }}</b> 条
+            </template>
+          </div>
         </div>
         <div class="kpi" style="--accent:#41d6c3">
           <div class="k-label">站点数据新鲜度</div>
-          <div class="k-value">{{ coveragePct }}<small>%</small></div>
+          <div class="k-value"><span v-countup="coveragePct"></span><small>%</small></div>
           <div class="k-foot">近 15 分钟已刷新 {{ fresh.obs_fresh || 0 }} / {{ fresh.station_total || 0 }} 站</div>
         </div>
         <div class="kpi" style="--accent:#b48bff">
           <div class="k-label">累计观测刷新</div>
-          <div class="k-value">{{ U.num(fresh.updates_total) }}<small>次</small></div>
+          <div class="k-value"><span v-countup="fresh.updates_total"></span><small>次</small></div>
           <div class="k-foot">单站最高 {{ fresh.obs_max_updates || 0 }} 次</div>
         </div>
-        <div class="kpi" style="--accent:#5bc8ff">
-          <div class="k-label">引擎请求统计</div>
-          <div class="k-value" style="font-size:20px">成功 {{ U.num(requests.ok) }}</div>
-          <div class="k-foot">失败 {{ requests.fail }} 次 · 自动重试 3 次/请求</div>
+        <div class="kpi" :style="{ '--accent': throttle.limited ? '#ffd233' : '#3ddc97' }">
+          <div class="k-label">采集限速 · 自适应</div>
+          <div class="k-value" style="font-size:20px">
+            {{ throttle.rate }}<small>req/s</small>
+            <span v-if="throttle.limited" style="font-size:11px;color:#ffd233">降速中</span>
+          </div>
+          <div class="k-foot">
+            成功 {{ requests.ok }} / 失败 {{ requests.fail }} ·
+            {{ throttle.limited
+              ? '被限流，间隔 ×' + throttle.interval_scale
+              : '稳态（上限 ' + throttle.base_rate + ' req/s）' }}
+          </div>
         </div>
       </div>
 
@@ -229,7 +258,7 @@
         <div class="panel-body job-card">
           <div class="job-desc">{{ j.desc }}</div>
           <div class="job-stats">
-            <div><span>节奏</span><b>{{ j.interval }}s</b></div>
+            <div><span>节奏</span><b>{{ j.effective_interval || j.interval }}s</b></div>
             <div><span>上轮扫描</span><b>{{ j.scanned }}</b></div>
             <div><span>上轮新增</span><b :style="{color: j.new ? j.accent : ''}">{{ j.new }}</b></div>
             <div><span>耗时</span><b>{{ j.duration === null ? '—' : j.duration + 's' }}</b></div>

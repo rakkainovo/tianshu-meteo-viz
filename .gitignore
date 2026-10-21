@@ -27,6 +27,32 @@ desktop.ini
 *.tmp
 ~$*
 
+# ---------- 大模型 Key（私密，绝不提交）----------
+# server/llm.local.json 里放 DeepSeek / OpenAI 兼容接口的 api_key。
+# 模板见 server/llm.local.example.json
+server/llm.local.json
+
 # ---------- 课程提交物（论文由学习者单独上交学习通）----------
 # 如需把论文一并纳入仓库，注释掉下面这行
 # docs/*.docx
+
+# ---------- 本地 git 仓库修复备份（体积大且含旧对象，绝不提交）----------
+.git-broken-*/
+
+# ---------- 本地缓存 / 调试截图 / 数据库副本 ----------
+.cache/
+
+# ---------- 数据库与文档备份（非交付物）----------
+data/*.bak-*
+data/*.before-restore-*.db
+*.bak-*
+docs/*.docx.bak-*
+docs/_论文备份_*.docx
+
+# 演示快照只保留锚定论文数字的那一份，其余历史快照不入库
+data/snapshots/*
+!data/snapshots/meteo-20261014-1535.db
+!data/snapshots/meteo-20261014-1535.txt
+
+# ---------- 本机 CA 副本（运行时自动生成到系统临时目录）----------
+tianshu-ca/

@@ -71,8 +71,8 @@
         <h3><span class="idx">1</span>数据采集层</h3>
         <ul>
           <li>中央气象台站点接口</li><li>预警信号接口</li>
-          <li>7 日预报接口</li><li>台风路径接口</li>
-          <li>阿里 DataV 行政区划</li><li>curl_cffi 指纹伪装</li>
+          <li>逐日预报 / 台风路径</li><li>阿里 DataV 行政区划</li>
+          <li>curl_cffi 指纹伪装</li><li>地形高程网格生成</li>
         </ul>
       </div>
       <div class="card c2">
@@ -86,9 +86,9 @@
       <div class="card c3">
         <h3><span class="idx">3</span>数据存储层</h3>
         <ul>
-          <li>SQLite 8 张数据表</li><li>3237 条行政区划</li>
+          <li>SQLite 14 张数据表</li><li>3237 条行政区划</li>
           <li>2528 个气象站点</li><li>365 个离线 GeoJSON</li>
-          <li>obs_stat 分钟聚合表</li><li>live_event 事件流表</li>
+          <li>observation_history 历史表</li><li>地形高程网格 365 份</li>
         </ul>
       </div>
     </div>
@@ -105,23 +105,24 @@
         <ul>
           <li>态势总览大屏</li><li>预警地图四级下钻</li>
           <li>站点实况监测</li><li>台风路径回放</li>
-          <li>时空回放</li><li>ECharts 图元体系</li>
+          <li>时空回放</li><li>三维立体沙盘</li>
+          <li>ECharts + Three.js</li>
         </ul>
       </div>
       <div class="card c5">
         <h3><span class="idx">5</span>实时引擎层</h3>
         <ul>
-          <li>预警轮询 60 s</li><li>实况轮转 45 s</li>
-          <li>台风覆盖 30 min</li><li>失败退避重试</li>
-          <li>SSE 事件推送</li><li>增量刷新</li>
+          <li>预警轮询 60 s</li><li>实况轮转 30 s</li>
+          <li>台风覆盖 30 min</li><li>自适应限速退避</li>
+          <li>SSE 事件推送</li><li>实况历史累积</li>
         </ul>
       </div>
       <div class="card c6">
         <h3><span class="idx">6</span>人机交互层</h3>
         <ul>
           <li>顶部导航栏</li><li>深色科技风视觉</li>
-          <li>地图 / 图表联动</li><li>自然语言问答</li>
-          <li>规则 + 大模型双通道</li><li>结论可溯源到 SQL</li>
+          <li>地图 / 图表 / 三维联动</li><li>自然语言问答</li>
+          <li>多轮追问与会话上下文</li><li>结论可溯源到 SQL</li>
         </ul>
       </div>
     </div>

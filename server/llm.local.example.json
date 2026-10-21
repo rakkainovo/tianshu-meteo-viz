@@ -1,0 +1,8 @@
+{
+  "_说明": "把本文件复制为同目录下的 llm.local.json 并填入 api_key 即可启用大模型通道。llm.local.json 已在 .gitignore 中排除，不会被提交到 GitHub。",
+  "_作用": "启用后：口语问句可由模型翻译成意图(通道B-1)；规则算好的事实由模型组织成通顺回答(通道B-2)；规则未命中时以聚合摘要为上下文自由回答(通道B-3)。模型不接触原始表、不做算术。",
+  "_不配也能用": "留空/无此文件时，纯本地规则通道独立完成全部问答（断网可用）。环境变量 LLM_API_KEY / LLM_BASE / LLM_MODEL 的优先级高于本文件。",
+  "api_key": "",
+  "base": "https://api.deepseek.com/v1",
+  "model": "deepseek-chat"
+}

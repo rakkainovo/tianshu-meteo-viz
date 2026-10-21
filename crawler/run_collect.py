@@ -21,12 +21,14 @@ from datetime import datetime
 from pathlib import Path
 
 from nmc_client import NmcClient, TyphoonClient, parallel_map, save_json
+from weathercn_client import WeatherCnClient
 
 ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "data" / "raw"
 RAW.mkdir(parents=True, exist_ok=True)
 
 client = NmcClient(rate=6.0)
+weathercn_cli = WeatherCnClient(rate=1.0)
 typhoon_cli = TyphoonClient(rate=4.0)
 
 
@@ -78,8 +80,11 @@ def collect_stations() -> dict:
 # ==========================================================================
 # 2. 全国实时气象预警信号
 # ==========================================================================
+# 标题结尾有「…蓝色预警信号」和「…蓝色预警」两种写法（后者多见于非气象台
+# 发布的次生灾害预警，如「陕西省气象台发布山洪灾害黄色预警」）。
+# 「信号」必须可选，否则这类标题整条解析失败 → level 兜底成「未知」。
 ALARM_RE = re.compile(
-    r"^(?P<issuer>.+?)发布(?P<type>.+?)(?P<level>蓝色|黄色|橙色|红色)预警信号")
+    r"^(?P<issuer>.+?)发布(?P<type>.+?)(?P<level>蓝色|黄色|橙色|红色)预警(?:信号)?")
 
 
 def parse_alarm(item: dict) -> dict:
@@ -110,21 +115,41 @@ def collect_alarms(max_pages: int = 15) -> dict:
     pages = min(client.alarm_total_pages(200), max_pages)
     log("  预警总页数 = %d（本次最多取 %d 页）" % (client.alarm_total_pages(200), pages))
 
-    raw_items, parsed = [], []
+    # 两源合并：nmc 全国流（含 icon）+ 中国天气网补充源（补青海）。
+    # 两源共用国家预警发布中心的 alertid，按它去重即可；nmc 优先。
+    merged: dict[str, dict] = {}
+
+    def _put(it: dict) -> None:
+        rid = it.get("alertid")
+        if rid and rid not in merged:
+            merged[rid] = it
+
     for p in range(1, pages + 1):
         j = client.alarms(page_no=p, page_size=200)
         lst = ((j.get("data") or {}).get("page") or {}).get("list") or []
         if not lst:
             break
-        raw_items.extend(lst)
-        parsed.extend(parse_alarm(x) for x in lst)
-        log("    第 %d 页 → %d 条（累计 %d）" % (p, len(lst), len(parsed)))
+        for x in lst:
+            _put(x)
+        log("    第 %d 页 → %d 条（累计 %d）" % (p, len(lst), len(merged)))
         if len(lst) < 200:
             break
 
+    nmc_n = len(merged)
+    try:
+        for it in weathercn_cli.alarms():
+            _put(it)
+    except Exception as e:                       # noqa: BLE001
+        log("    ! 中国天气网补充源失败（继续用 nmc 结果）: %s" % str(e)[:80])
+
+    raw_items = list(merged.values())
+    parsed = [parse_alarm(x) for x in raw_items]
+    log("  nmc %d 条 + 补充源去重后合计 %d 条" % (nmc_n, len(raw_items)))
+
     out = {
         "collected_at": datetime.now().isoformat(timespec="seconds"),
-        "source": "中国气象局 www.nmc.cn /rest/findAlarm",
+        "source": "中国气象局 www.nmc.cn /rest/findAlarm"
+                  " + 中国天气网 forecast.weather.com.cn /api/v1/traffic/alarm/alarmMap",
         "count": len(parsed),
         "records": parsed,
     }

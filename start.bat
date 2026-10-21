@@ -8,27 +8,48 @@ echo   Disaster Warning Spatio-temporal Visualization Platform
 echo ==============================================================
 echo.
 
-rem ---- Use project-local venv so it runs on any machine ----
-set "PY=%~dp0.venv\Scripts\python.exe"
-if exist "%PY%" goto check
+rem ----------------------------------------------------------------------
+rem  Pick a virtual environment whose path can actually start Python.
+rem
+rem  A venv created under a non-ASCII path (Chinese / Japanese folder names)
+rem  CANNOT run on Windows at all: its python.exe is a "venv launcher" that
+rem  fails to read pyvenv.cfg and exits with a bare
+rem        failed to open '...\.venv\pyvenv.cfg':
+rem  Mapping the folder to an ASCII drive letter does NOT help either
+rem  (both verified 2026-10-08). So: use the in-project .venv when it works,
+rem  otherwise fall back to a plain-ASCII location under %LOCALAPPDATA%.
+rem ----------------------------------------------------------------------
+set "VENV=%~dp0.venv"
+set "PY=%VENV%\Scripts\python.exe"
 
-echo [1/3] No local venv found, creating one ...
-where python >nul 2>nul
-if errorlevel 1 (
-  echo.
-  echo   [ERROR] Python not found. Please install Python 3.10+ first
-  echo           and check "Add Python to PATH" during setup.
-  echo           Download: https://www.python.org/downloads/
-  echo.
-  pause
-  exit /b 1
-)
-python -m venv .venv
-if errorlevel 1 ( echo   [ERROR] venv creation failed & pause & exit /b 1 )
-set "PY=%~dp0.venv\Scripts\python.exe"
+if not exist "%PY%" goto pick_fallback
+"%PY%" -c "pass" >nul 2>nul
+if not errorlevel 1 goto check
+echo [i] In-project .venv cannot start (non-ASCII install path detected).
+echo     Falling back to %LOCALAPPDATA%\tianshu-venv
+
+:pick_fallback
+set "VENV=%LOCALAPPDATA%\tianshu-venv"
+set "PY=%VENV%\Scripts\python.exe"
 
 :check
 echo [1/3] Checking dependencies ...
+if not exist "%PY%" (
+  echo       Creating virtual environment at %VENV% ...
+  where python >nul 2>nul
+  if errorlevel 1 (
+    echo.
+    echo   [ERROR] Python not found. Please install Python 3.10+ first
+    echo           and check "Add Python to PATH" during setup.
+    echo           Download: https://www.python.org/downloads/
+    echo.
+    pause
+    exit /b 1
+  )
+  python -m venv "%VENV%"
+  if errorlevel 1 ( echo   [ERROR] venv creation failed & pause & exit /b 1 )
+)
+
 "%PY%" -c "import flask, curl_cffi" >nul 2>nul
 if errorlevel 1 (
   echo       Installing dependencies from requirements.txt ...

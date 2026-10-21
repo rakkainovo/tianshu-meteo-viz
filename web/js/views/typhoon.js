@@ -22,6 +22,10 @@
     SuperTY: { cn: '超强台风',   color: '#ff3b47' }
   };
 
+  /* 叠加对比配色：与强度分级色区分开，一眼能分清"谁是谁" */
+  const OV_COLORS = ['#ff8a00', '#b48bff', '#ffd233', '#7cf6d8', '#ff6b6b',
+                     '#5bc8ff', '#c08b5c', '#8ee6a8', '#ff4d6d', '#e0a44a'];
+
   window.ViewTyphoon = {
     name: 'v-typhoon',
     props: { meta: Object, ctx: Object },
@@ -30,7 +34,10 @@
       return {
         list: [], overview: null, cur: null, path: [], tracks: {},
         idx: 0, playing: false, speed: 1, timer: null,
-        mapName: '', filter: 'all'
+        mapName: '', filter: 'all',
+        overlay: [],                 // 叠加对比的台风 code 列表（勾选后各自独立着色）
+        cloud3d: false,              // 三维云墙开关
+        typhoonCloud: null           // 台风云墙渲染器
       };
     },
     computed: {
@@ -39,7 +46,9 @@
       },
       /* 路径包围盒 —— 用于设定地图投影范围，让台风路径完整落在画布内 */
       bounds() {
-        const ts = this.shown;
+        /* 叠加对比的台风可能被「已停编」筛选挡掉，但它们的路径也要放进视野 */
+        const extra = this.overlay.map(c => this.list.find(t => this.ctCode(t) === c)).filter(Boolean);
+        const ts = this.shown.concat(extra.filter(t => this.shown.indexOf(t) < 0));
         if (!ts.length) return [[95, 2], [152, 46]];
         const lo = Math.min(...ts.map(t => t.min_lon)) - 4;
         const hi = Math.max(...ts.map(t => t.max_lon)) + 4;
@@ -50,6 +59,11 @@
       livePath() { return this.path.slice(0, this.idx + 1); },
       curPoint() { return this.path[this.idx] || null; },
       timeText() { return this.curPoint ? this.fmt(this.curPoint.time) : '—'; }
+    },
+    watch: {
+      cloud3d() {
+        this.renderMap();
+      }
     },
     async created() { await this.load(); },
     beforeUnmount() { this.stop(); },
@@ -104,8 +118,34 @@
       },
       ctCode(t) { return t.code || String(t.num); },
       pathOf(t) { return (this.tracks && this.tracks[this.ctCode(t)]) || []; },
+      /* ---------- 多台风叠加对比 ---------- */
+      isOverlay(t) { return this.overlay.indexOf(this.ctCode(t)) >= 0; },
+      overlayColor(t) {
+        const i = this.overlay.indexOf(this.ctCode(t));
+        return i >= 0 ? OV_COLORS[i % OV_COLORS.length] : null;
+      },
+      toggleOverlay(t) {
+        const code = this.ctCode(t);
+        const i = this.overlay.indexOf(code);
+        if (i >= 0) this.overlay.splice(i, 1);
+        else this.overlay.push(code);
+        this.renderMap();
+      },
+      clearOverlay() { this.overlay = []; this.renderMap(); },
       /* 台风生命史中的最强等级（后端入库时已算好，避免前端遍历 1536 个路径点） */
       tyOf(t) { return t.max_level || 'TS'; },
+      /* 根据台风等级返回云墙半径 */
+      getRadiusForLevel(level) {
+        const sizes = {
+          'TD': 30,      // 热带低压
+          'TS': 40,      // 热带风暴
+          'STS': 50,     // 强热带风暴
+          'TY': 60,      // 台风
+          'STY': 70,     // 强台风
+          'SuperTY': 85  // 超强台风
+        };
+        return sizes[level] || 40;
+      },
 
       renderMap() {
         if (!this.mapName) return;
@@ -129,6 +169,22 @@
           })
         }];
 
+        /* ①.5 叠加对比层：勾选的台风各自描一条独立颜色，并排比较走向（silent 不抢交互） */
+        this.overlay.forEach(code => {
+          const t = this.list.find(x => this.ctCode(x) === code);
+          if (!t) return;
+          series.push({
+            name: '对比 · ' + this.name(t), type: 'lines', coordinateSystem: 'geo', geoIndex: 0,
+            polyline: true, silent: true, zlevel: 3,
+            data: [{ coords: this.pathOf(t) }],
+            lineStyle: {
+              width: 2.2,
+              color: OV_COLORS[this.overlay.indexOf(code) % OV_COLORS.length],
+              opacity: .95
+            }
+          });
+        });
+
         if (sel) {
           /* ② 已行进段：高亮实线 */
           series.push({
@@ -149,10 +205,10 @@
               dir: p.wind_dir, move: p.move_speed
             })),
             symbolSize: 7, zlevel: 5,
+            /* 不用 large/progressive：增量渲染层不响应 geo 漫游，缩放后点钉死 */
             itemStyle: {
               color: p => (TY[p.data.level] || {}).color || '#9aa7b8',
-              borderColor: 'rgba(255,255,255,.55)', borderWidth: .8,
-              shadowBlur: 8, shadowColor: 'rgba(0,0,0,.6)'
+              borderColor: 'rgba(255,255,255,.55)', borderWidth: .8
             }
           });
         }
@@ -160,16 +216,37 @@
         /* ④ 当前帧位置的光标 */
         const cp = this.curPoint;
         if (cp) {
+          // 云墙效果：添加额外的圆形图层表示台风影响范围
+          if (this.cloud3d && cp.level) {
+            const radius = this.getRadiusForLevel(cp.level);
+            series.push({
+              name: '台风云墙', type: 'effectScatter', coordinateSystem: 'geo', geoIndex: 0,
+              data: [{ value: [cp.lon, cp.lat], level: cp.level }],
+              symbolSize: radius,
+              zlevel: 5,
+              rippleEffect: { brushType: 'fill', scale: 2.5, period: 4 },
+              itemStyle: {
+                color: (TY[cp.level] || {}).color || '#fff',
+                opacity: 0.15,
+                shadowBlur: 30,
+                shadowColor: (TY[cp.level] || {}).color || '#fff'
+              }
+            });
+          }
+
           series.push({
             name: '当前位置', type: 'effectScatter', coordinateSystem: 'geo', geoIndex: 0,
             data: [{ name: this.fmt(cp.time), value: [cp.lon, cp.lat] }],
-            symbolSize: 15, zlevel: 6,
-            rippleEffect: { brushType: 'stroke', scale: 3.4, period: 2.6 },
+            symbolSize: this.cloud3d ? 20 : 15, zlevel: 6,
+            rippleEffect: { brushType: 'stroke', scale: this.cloud3d ? 4.5 : 3.4, period: 2.6 },
             itemStyle: { color: (TY[cp.level] || {}).color || '#fff',
-                         borderColor: '#fff', borderWidth: 1.6,
-                         shadowBlur: 16, shadowColor: 'rgba(255,255,255,.6)' },
+                         borderColor: '#fff', borderWidth: this.cloud3d ? 2.2 : 1.6,
+                         shadowBlur: this.cloud3d ? 24 : 16,
+                         shadowColor: this.cloud3d ? (TY[cp.level] || {}).color : 'rgba(255,255,255,.6)' },
             label: { show: true, formatter: this.name(this.cur),
-                     position: 'top', color: '#fff', fontSize: 12, fontWeight: 600,
+                     position: 'top', color: '#fff',
+                     fontSize: this.cloud3d ? 14 : 12,
+                     fontWeight: this.cloud3d ? 700 : 600,
                      textShadowColor: '#000', textShadowBlur: 8 }
           });
         }
@@ -179,7 +256,7 @@
             /* 关键：把投影范围扩到西太平洋，路径才不会跑出画布 */
             boundingCoords: this.bounds,
             zoom: 1, layoutCenter: ['50%', '52%'], layoutSize: '100%',
-            itemStyle: { areaColor: 'rgba(16,40,64,.78)', borderColor: 'rgba(96,170,230,.45)', borderWidth: .8 }
+            itemStyle: { areaColor: T.C.faceEmpty, borderColor: 'rgba(96,176,238,.5)', borderWidth: .8 }
           },
           tooltipOpt: {
             formatter: p => {
@@ -257,7 +334,13 @@
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
       },
       setSpeed(s) { this.speed = s; if (this.playing) { this.stop(); this.play(); } },
-      onSeek() { this.stop(); this.renderMap(); },
+      /* 滑杆拖动时 @input 每个像素触发一次，整套 renderMap 重建会掉帧；
+         防抖 80ms —— 时间文字仍然逐帧跟手，地图在拖动间隙成帧刷新 */
+      onSeek() {
+        this.stop();
+        if (!this._seekR) this._seekR = U.debounce(() => this.renderMap(), 80);
+        this._seekR();
+      },
 
       /* 台风编号 20260027 -> 2026 年第 27 号；2604 -> 2026 年第 4 号 */
       fmtCode(t) {
@@ -281,6 +364,8 @@
         <div class="field"><label>范围</label>
           <span class="chip" :class="{on: filter==='all'}" @click="filter='all'; $nextTick(renderMap)">全部 {{ list.length }}</span>
           <span class="chip" :class="{on: filter==='end'}" @click="filter='end'; $nextTick(renderMap)">已停编</span>
+          <span class="chip" v-if="overlay.length" @click="clearOverlay"
+                style="color:#ff8a9a;border-color:rgba(255,90,110,.4)">对比 {{ overlay.length }} 个 · 清除</span>
         </div>
         <span style="margin-left:auto;font-size:12px;color:#6f89a6">
           数据集记录 <b style="color:#3fc6ff">{{ list.length }}</b> 个台风 ·
@@ -295,6 +380,12 @@
             <div class="panel-head">
               <h3>西太平洋台风路径沙盘</h3>
               <span class="sub">虚线 = 完整路径　实线 = 已行进　点击路径点可定位该时刻</span>
+              <button class="btn-icon" :class="{active:cloud3d}" @click="cloud3d = !cloud3d" title="三维云墙" style="margin-left:auto">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+                </svg>
+                云墙
+              </button>
             </div>
             <div class="panel-body map-wrap" style="padding:0">
               <div class="chart" ref="map"></div>
@@ -369,6 +460,10 @@
                     <span style="font-size:13px;font-weight:600;color:#e8f0fb">{{ name(t) }}</span>
                     <span class="badge" :style="{color: tyColor(tyOf(t))}">{{ tyCn(tyOf(t)) }}</span>
                     <span class="ai-time">{{ (t.start_time||'').slice(4,8) }}</span>
+                    <span class="ov-star" :class="{ on: isOverlay(t) }"
+                          :style="isOverlay(t) ? { color: overlayColor(t) } : {}"
+                          @click.stop="toggleOverlay(t)"
+                          :title="isOverlay(t) ? '取消对比' : '叠加到地图对比'">{{ isOverlay(t) ? '●' : '◌' }}</span>
                   </div>
                   <div class="ai-sub">{{ fmtCode(t) }} · 最大风速 {{ U.num(t.max_wind,0) }} m/s ·
                     气压 {{ U.num(t.min_pressure,0) }} hPa</div>

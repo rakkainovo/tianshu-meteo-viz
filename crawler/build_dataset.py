@@ -230,6 +230,21 @@ def geocode(prov: str, city: str, county: str, coords: dict) -> tuple[list | Non
 # ==========================================================================
 # 三、清洗预警
 # ==========================================================================
+def raw_observed_at() -> str | None:
+    """采集快照的采集时刻 —— 入库时写进 alarm.last_seen_at。
+
+    必须用它、不能用建库时间：这份快照本身就是"采集那一刻的当前生效清单"，
+    拿建库时间顶替会把 15 天前的老预警一起判成"仍然生效"（正是要修的那个误解）。
+    """
+    src = RAW / "alarms.json"
+    if not src.exists():
+        return None
+    try:
+        return json.loads(src.read_text(encoding="utf-8")).get("collected_at")
+    except (OSError, ValueError):
+        return None
+
+
 def parse_alarms(coords: dict) -> tuple[list, set]:
     src = RAW / "alarms.json"
     if not src.exists():
@@ -245,6 +260,12 @@ def parse_alarms(coords: dict) -> tuple[list, set]:
         if city:
             cities.add(city)
         xy, lvl = geocode(prov, city, county, coords)
+        if not xy and r.get("lng") is not None and r.get("lat") is not None:
+            # 中国天气网补充源自带区县质心；region 底图查不到时兜底，别让点落空
+            xy, lvl = (r.get("lng"), r.get("lat")), "district"
+        url = r.get("url") or ""
+        if url.startswith("/"):               # nmc 给相对路径，补充源给绝对 URL
+            url = "http://www.nmc.cn" + url
         recs.append({
             "id": r.get("alertid"), "time": r.get("issuetime"), "title": r.get("title"),
             "type": r.get("type") or "其他", "level": r.get("level") or "未知",
@@ -253,7 +274,12 @@ def parse_alarms(coords: dict) -> tuple[list, set]:
             "adm_code": adm,
             "lng": xy[0] if xy else None, "lat": xy[1] if xy else None,
             "geo_level": lvl, "icon": r.get("icon"),
-            "url": "http://www.nmc.cn" + (r.get("url") or ""),
+            "url": url,
+            "source": r.get("source") or "nmc",
+            # 采集时刻透传：入库时写进 alarm.last_seen_at —— 这份快照本身就是
+            # "采集那一刻的当前生效清单"，没有它就只能拿建库时间顶替，
+            # 会把 15 天前的老预警一起判成"仍然生效"。
+            "observed_at": raw.get("collected_at"),
         })
     return recs, cities
 
@@ -369,6 +395,7 @@ def main() -> None:
     if recs:
         (PROC / "alarms.json").write_text(json.dumps(
             {"source": "中国气象局 nmc.cn /rest/findAlarm", "count": len(recs),
+             "collected_at": raw_observed_at(),
              "records": recs}, ensure_ascii=False), encoding="utf-8")
         st = build_stats(recs, wp.get("stations"))
         (PROC / "stats.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")

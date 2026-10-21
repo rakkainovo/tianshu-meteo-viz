@@ -35,12 +35,21 @@ DEFAULT_HEADERS = {
 
 
 class RateLimiter:
-    """简单令牌桶限速器，保证全局请求速率不超过 rate 次/秒。"""
+    """简单令牌桶限速器，保证全局请求速率不超过 rate 次/秒。
+
+    rate 可运行时调整（set_rate）——采集引擎会根据被限流的情况动态降速/回升。
+    """
 
     def __init__(self, rate: float = 6.0):
-        self.min_interval = 1.0 / rate
         self._lock = threading.Lock()
+        self.rate = float(rate)
+        self.min_interval = 1.0 / self.rate
         self._next_time = time.monotonic()
+
+    def set_rate(self, rate: float) -> None:
+        with self._lock:
+            self.rate = max(0.2, float(rate))
+            self.min_interval = 1.0 / self.rate
 
     def wait(self) -> None:
         with self._lock:
@@ -54,6 +63,14 @@ class RateLimiter:
             time.sleep(sleep_for)
 
 
+class RateLimited(RuntimeError):
+    """被目标站点限流（403/429）。
+
+    这种情况原样重试没有意义 —— nmc 的 403 常常是**连接级**的，同一个 Session
+    怎么重试都还是 403，反而会把限流窗口越撑越长。调用方应当换连接并考虑降速。
+    """
+
+
 class NmcClient:
     """中国气象局数据采集客户端（线程安全：每个线程独立 Session）。"""
 
@@ -64,6 +81,7 @@ class NmcClient:
         self._local = threading.local()
         self.stat_ok = 0
         self.stat_fail = 0
+        self.blocked = 0                     # 被 403/429 拒绝的累计次数
         self._lock = threading.Lock()
 
     # ---------- 内部 ----------
@@ -77,6 +95,20 @@ class NmcClient:
             self._local.session = s
         return s
 
+    def _reset_session(self) -> None:
+        """丢弃当前线程的连接。
+
+        实测：nmc 的 403 常常是**连接级**封禁 —— 同一个 Session 原样重试仍是 403，
+        而新建连接的进程却能正常取到数据。所以被拒后先换连接，再谈重试。
+        """
+        s = getattr(self._local, "session", None)
+        if s is not None:
+            try:
+                s.close()
+            except Exception:                # noqa: BLE001
+                pass
+        self._local.session = None
+
     def _bump(self, ok: bool) -> None:
         with self._lock:
             if ok:
@@ -85,15 +117,29 @@ class NmcClient:
                 self.stat_fail += 1
 
     def get_json(self, path: str, params: dict | None = None) -> Any:
-        """GET 一个接口并返回解析后的 JSON，带限速 + 重试。"""
+        """GET 一个接口并返回解析后的 JSON，带限速 + 重试。
+
+        遇到 403/429 视为被限流：换连接后重试，并把 RateLimited 抛给调用方，
+        由采集引擎决定是否整体降速（见 live.LiveEngine.adapt_rate）。
+        """
         url = path if path.startswith("http") else BASE + path
         last_err: Exception | None = None
+        limited = False
         for attempt in range(self.retries):
             self.limiter.wait()
             try:
                 r = self.session.get(url, params=params, timeout=self.timeout)
-                if r.status_code != 200:
-                    raise RuntimeError("HTTP %s" % r.status_code)
+                code = r.status_code
+                if code in (403, 429):
+                    limited = True
+                    with self._lock:
+                        self.blocked += 1
+                    self._reset_session()             # 换连接，别在封禁上硬撞
+                    last_err = RateLimited("HTTP %s（被限流）" % code)
+                    time.sleep(min(1.2 * (attempt + 1), 4.0))
+                    continue
+                if code != 200:
+                    raise RuntimeError("HTTP %s" % code)
                 data = r.json()
                 self._bump(True)
                 return data
@@ -101,7 +147,8 @@ class NmcClient:
                 last_err = e
                 time.sleep(0.5 * (attempt + 1))   # 退避
         self._bump(False)
-        raise RuntimeError("请求失败 %s: %s" % (url, last_err))
+        msg = "请求失败 %s: %s" % (url, last_err)
+        raise (RateLimited(msg) if limited else RuntimeError(msg))
 
     # ---------- 业务接口 ----------
     def provinces(self) -> list[dict]:
@@ -176,12 +223,34 @@ class TyphoonClient:
         a = text.find("(")
         return json.loads(text[a + 1:text.rfind(")")])
 
-    def _get(self, path: str) -> Any:
-        self.limiter.wait()
+    def _reset_session(self) -> None:
+        s = getattr(self._local, "session", None)
+        if s is not None:
+            try:
+                s.close()
+            except Exception:                # noqa: BLE001
+                pass
+        self._local.session = None
+
+    def _get(self, path: str, retries: int = 3) -> Any:
+        """取一个台风接口。403/429 视为连接级限流：换连接重试（与实况采集同策略）。"""
         url = "%s/%s?_=%d" % (TYPHOON_BASE, path, int(time.time() * 1000))
-        r = self.session.get(url, timeout=self.timeout)
-        r.raise_for_status()
-        return self._unwrap(r.text)
+        last_err: Exception | None = None
+        for attempt in range(retries):
+            self.limiter.wait()
+            try:
+                r = self.session.get(url, timeout=self.timeout)
+                if r.status_code in (403, 429):
+                    last_err = RateLimited("HTTP %s（被限流）" % r.status_code)
+                    self._reset_session()
+                    time.sleep(min(1.2 * (attempt + 1), 4.0))
+                    continue
+                r.raise_for_status()
+                return self._unwrap(r.text)
+            except Exception as e:           # noqa: BLE001
+                last_err = e
+                time.sleep(0.5 * (attempt + 1))
+        raise last_err if isinstance(last_err, RateLimited) else RuntimeError(str(last_err))
 
     def list_default(self) -> list[list]:
         """台风列表：[id, 中文名, 英文名, 编号, 编号, 数字编号, 是否活跃, 状态]"""
