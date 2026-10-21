@@ -1,7 +1,6 @@
 # 天枢 · 全国气象监测与灾害预警时空可视化平台
 
-> 数据可视化课程 · 综合设计（第 7-8 周）配套项目
-> 学号 24121846 · 姓名 余彬彬
+> 数据可视化
 > 技术栈：Vue 3 + ECharts 5 + 地图下钻 / Flask + SQLite / SSE 实时推送 / 智能问答
 
 **仓库地址：<https://github.com/rakkainovo/tianshu-meteo-viz>**
